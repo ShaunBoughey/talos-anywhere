@@ -4,7 +4,6 @@
     control_plane_ips: []
     worker_ips: []
 
-
 - name: Combine IP lists
   ansible.builtin.set_fact:
     control_plane_ips: "{{ groups[server_control_plane_group] | default([]) }}"
@@ -19,6 +18,7 @@
   ansible.builtin.stat:
     path: "{{ talos_cluster_name }}/talosconfig"
   register: talosconfig_stat
+  delegate_to: localhost
 
 - name: Check if the cluster is already bootstrapped
   ansible.builtin.command: "talosctl health --talosconfig={{ talos_cluster_name }}/talosconfig --nodes {{ first_control_plane_ip }} --wait-timeout 20s"
@@ -26,11 +26,13 @@
   changed_when: false
   failed_when: false
   when: talosconfig_stat.stat.exists
+  delegate_to: localhost
 
 - name: Set health fact
   ansible.builtin.set_fact:
     cluster_is_healthy: "{{ 'waiting for etcd to be healthy: OK' in cluster_health.stderr }}"
   when: talosconfig_stat.stat.exists
+  delegate_to: localhost
 
 - name: debug control_plane_ips
   ansible.builtin.debug:
@@ -65,7 +67,10 @@
         - talos_version is defined
         - talos_version | length > 0
         - talos_kubernetes_version is defined
+        - talos_kubernetes_version is defined
         - talos_kubernetes_version | length > 0
+        - tailscale_auth_key is defined
+        - tailscale_auth_key | length > 0
       fail_msg: "talos_version and talos_kubernetes_version are required for reproducible config generation"
     delegate_to: localhost
 
@@ -109,7 +114,6 @@
       src: tailscale-patch.yaml.j2
       dest: "{{ talos_cluster_name }}/tailscale-patch.yaml"
     delegate_to: localhost
-    when: tailscale_enabled and (tailscale_auth_key | length) > 0
 
   - name: Render Talos scheduling patch
     ansible.builtin.template:
@@ -123,7 +127,6 @@
       src: firewall-patch.yaml.j2
       dest: "{{ talos_cluster_name }}/firewall-patch.yaml"
     delegate_to: localhost
-    when: tailscale_enabled | default(false)
 
   - name: Generate Talos configuration files
     ansible.builtin.command: >
@@ -143,15 +146,12 @@
   - name: Append Configuration Patches (Tailscale & Firewall)
     ansible.builtin.shell: |
       # Ensure at least one command runs to avoid empty shell error
+      # Ensure at least one command runs to avoid empty shell error
       true
-      {% if tailscale_enabled and (tailscale_auth_key | length) > 0 %}
       cat {{ talos_cluster_name }}/tailscale-patch.yaml >> {{ talos_cluster_name }}/controlplane.yaml
       cat {{ talos_cluster_name }}/tailscale-patch.yaml >> {{ talos_cluster_name }}/worker.yaml
-      {% endif %}
-      {% if tailscale_enabled | default(false) %}
       cat {{ talos_cluster_name }}/firewall-patch.yaml >> {{ talos_cluster_name }}/controlplane.yaml
       cat {{ talos_cluster_name }}/firewall-patch.yaml >> {{ talos_cluster_name }}/worker.yaml
-      {% endif %}
     delegate_to: localhost
 
   - name: Configure talosconfig with endpoints and nodes
@@ -169,6 +169,7 @@
     loop: "{{ control_plane_ips }}"
     loop_control:
       loop_var: item
+    delegate_to: localhost
 
   - name: Apply config to all control plane nodes
     ansible.builtin.shell: |
@@ -192,6 +193,7 @@
     loop: "{{ worker_ips }}"
     loop_control:
       loop_var: item
+    delegate_to: localhost
 
   - name: Apply config to all worker nodes
     ansible.builtin.shell: |
@@ -232,9 +234,9 @@
     retries: 20
     delay: 5
     until: bootstrap_result.rc == 0
+    delegate_to: localhost
+    when: not (cluster_is_healthy | default(false))
   
-
-
   - name: Switch kubeconfig to VIP after bootstrap (when enabled)
     block:
     - name: Wait for VIP API to become available
@@ -243,6 +245,7 @@
         port: 6443
         delay: 5
         timeout: 180
+      delegate_to: localhost
     when: (vip_address | length) > 0
 
   - name: Flush handlers (post-bootstrap)
@@ -254,6 +257,7 @@
       regexp: "server: https://{{ first_control_plane_ip | regex_escape }}:6443"
       replace: "server: https://{{ vip_address }}:6443"
     when: (vip_address | length) > 0
+    delegate_to: localhost
 
   - name: Install Secure Image to Disk (Fix Missing Extensions)
     ansible.builtin.shell: |
@@ -273,18 +277,13 @@
     delegate_to: localhost
     when: bootstrap_server | default(false)
 
-
-
   - name: Secure the cluster (Remove Runner IP from Firewall)
     block:
-
-
       - name: Re-render Firewall patch (Secure)
         ansible.builtin.template:
           src: firewall-patch.yaml.j2
           dest: "{{ talos_cluster_name }}/firewall-patch.yaml"
         delegate_to: localhost
-        when: tailscale_enabled | default(false)
 
       - name: Re-generate Talos configuration files (Secure)
         ansible.builtin.command: >
@@ -311,14 +310,10 @@
         ansible.builtin.shell: |
           # Ensure at least one command runs to avoid empty shell error
           true
-          {% if tailscale_enabled and (tailscale_auth_key | length) > 0 %}
           cat {{ talos_cluster_name }}/tailscale-patch.yaml >> {{ talos_cluster_name }}/controlplane.yaml
           cat {{ talos_cluster_name }}/tailscale-patch.yaml >> {{ talos_cluster_name }}/worker.yaml
-          {% endif %}
-          {% if tailscale_enabled | default(false) %}
           cat {{ talos_cluster_name }}/firewall-patch.yaml >> {{ talos_cluster_name }}/controlplane.yaml
           cat {{ talos_cluster_name }}/firewall-patch.yaml >> {{ talos_cluster_name }}/worker.yaml
-          {% endif %}
         delegate_to: localhost
 
       - name: Apply Secure Config to Control Plane
@@ -350,7 +345,6 @@
       register: tallos_addresses
       changed_when: false
       failed_when: false
-      when: tailscale_enabled | default(false)
 
     - name: Switch local talosconfig to Tailscale IP
       ansible.builtin.shell: |
@@ -367,7 +361,6 @@
           sed -i "s/{{ first_control_plane_ip }}/$TS_IP/g" {{ talos_cluster_name }}/kubeconfig
         fi
       when:
-        - tailscale_enabled | default(false)
         - tallos_addresses.rc == 0
         - tallos_addresses.stdout | length > 0
   delegate_to: localhost

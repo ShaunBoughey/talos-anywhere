@@ -8,9 +8,10 @@ secrets.yaml
 talosconfig
 kubeconfig
 
-vars/cluster.yml
+test_cluster/
 inventory.ini
-site.yml
+vars/test_cluster.yml
+deploy.yml
 
 # SSH Keys
 *.pem

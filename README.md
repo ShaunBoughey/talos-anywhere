@@ -5,13 +5,13 @@ A "Zero-Touch" Ansible playbook to bootstrap and secure a Talos Linux cluster on
 ## Features
 -   **Provider Agnostic**: Works on any server that supports `ssh` and `kexec`.
 -   **Zero-Touch**: Automatically detects public IP/Gateway from the running OS.
--   **Secure**: Installs standard Talos image, then immediately upgrades to a verified image with extensions (Tailscale, etc.). Firewall rules are **automatically applied** when Tailscale is enabled, blocking all generic traffic (port 50000/6443) except from the Tailscale subnet.
+-   **Secure**: Installs standard Talos image, then immediately upgrades to a verified image with extensions (Tailscale, etc.). Firewall rules are **automatically applied**, blocking all generic traffic (port 50000/6443) except from the Tailscale subnet.
 -   **Tailscale Integration**: Automatically joins the cluster to Tailscale and configures local `talosconfig` to use the Tailscale IP.
 
 ## Prerequisites
 -   **Ansible**: Installed locally.
 -   **Server**: A running Linux server (Ubuntu/Debian/CentOS) with SSH access.
--   **Tailscale Key**: An auth key for joining the mesh. *Optional*
+-   **Tailscale Key**: An auth key for joining the mesh.
 
 ## Quick Start
 

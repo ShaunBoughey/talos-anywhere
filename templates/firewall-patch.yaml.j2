@@ -13,6 +13,7 @@ portSelector:
   protocol: tcp
 ingress:
   - subnet: 100.64.0.0/10
+  - subnet: 10.244.0.0/16
 {% if runner_ip is defined and runner_ip | length > 0 %}
   - subnet: {{ runner_ip }}/32
 {% endif %}

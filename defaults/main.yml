@@ -37,8 +37,9 @@ talos_arch: "amd64"
 # ---------------------------------------------------------------------
 # Multi-Cloud & Security Features
 # ---------------------------------------------------------------------
+vip_enabled: false
+vip_address: ""
 talos_kubespan_enabled: true
 talos_allow_scheduling_on_control_plane: false
-tailscale_enabled: true
 tailscale_auth_key: ""
 tailscale_version: "1.76.1"
