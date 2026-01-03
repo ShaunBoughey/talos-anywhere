@@ -1,0 +1,18 @@
+# Ansible
+*.retry
+*.log
+
+# Cluster Secrets & Configs
+talos_cluster/
+secrets.yaml
+talosconfig
+kubeconfig
+
+vars/cluster.yml
+inventory.ini
+site.yml
+
+# SSH Keys
+*.pem
+*.key
+id_rsa
