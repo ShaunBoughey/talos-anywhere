@@ -277,8 +277,41 @@
     delegate_to: localhost
     when: bootstrap_server | default(false)
 
+  - name: Discover Tailscale IP (Pre-Secure)
+    ansible.builtin.command:
+      cmd: "talosctl --talosconfig {{ talos_cluster_name }}/talosconfig -n {{ first_control_plane_ip }} get addresses -o json"
+    register: tailscale_addresses
+    changed_when: false
+    failed_when: false
+    delegate_to: localhost
+
+  - name: Extract Tailscale IP
+    ansible.builtin.shell: |
+      TS_IP=$(echo '{{ tailscale_addresses.stdout }}' | grep -oP '"address": "\K100\.[^"]+' | head -n1 | sed 's|/.*||')
+      if [ -z "$TS_IP" ]; then
+          TS_IP=$(echo '{{ tailscale_addresses.stdout }}' | grep '"address": "100\.' | head -n1 | cut -d '"' -f 4 | sed 's|/.*||')
+      fi
+      echo "$TS_IP"
+    register: tailscale_ip_result
+    changed_when: false
+    delegate_to: localhost
+    when:
+      - tailscale_addresses.rc == 0
+      - tailscale_addresses.stdout | length > 0
+
+  - name: Set Tailscale IP fact
+    ansible.builtin.set_fact:
+      tailscale_ip: "{{ tailscale_ip_result.stdout | trim }}"
+    when: tailscale_ip_result is defined and tailscale_ip_result.stdout is defined and tailscale_ip_result.stdout | length > 0
+    delegate_to: localhost
+
   - name: Secure the cluster (Remove Runner IP from Firewall)
     block:
+      - name: Clear Runner IP for secure firewall
+        ansible.builtin.set_fact:
+          runner_ip: ""
+        delegate_to: localhost
+
       - name: Re-render Firewall patch (Secure)
         ansible.builtin.template:
           src: firewall-patch.yaml.j2
@@ -300,10 +333,10 @@
           --force
         delegate_to: localhost
 
-      - name: Configure secure talosconfig endpoints
+      - name: Configure secure talosconfig endpoints (Tailscale)
         ansible.builtin.shell: |
-          talosctl --talosconfig={{ talos_cluster_name }}/talosconfig config endpoints {{ first_control_plane_ip }}
-          talosctl --talosconfig={{ talos_cluster_name }}/talosconfig config nodes {{ first_control_plane_ip }}
+          talosctl --talosconfig={{ talos_cluster_name }}/talosconfig config endpoints {{ tailscale_ip | default(first_control_plane_ip) }}
+          talosctl --talosconfig={{ talos_cluster_name }}/talosconfig config nodes {{ tailscale_ip | default(first_control_plane_ip) }}
         delegate_to: localhost
 
       - name: Append Configuration Patches to Secure Config
@@ -318,7 +351,7 @@
 
       - name: Apply Secure Config to Control Plane
         ansible.builtin.shell: |
-          talosctl apply-config --talosconfig {{ talos_cluster_name }}/talosconfig --nodes {{ item }} --file {{ talos_cluster_name }}/controlplane.yaml
+          talosctl apply-config --talosconfig {{ talos_cluster_name }}/talosconfig --nodes {{ tailscale_ip | default(item) }} --file {{ talos_cluster_name }}/controlplane.yaml
         loop: "{{ control_plane_ips }}"
         loop_control:
           loop_var: item
@@ -331,37 +364,19 @@
         loop_control:
           loop_var: item
         delegate_to: localhost
-  when: not talosconfig_stat.stat.exists or not (cluster_is_healthy | default(false))
+  when: force_secure | default(false) | bool or not talosconfig_stat.stat.exists or not (cluster_is_healthy | default(false))
 
 - name: Post-Bootstrap Client Configuration
   block:
     - name: Write kubeconfig to file
-      ansible.builtin.command: "talosctl kubeconfig {{ talos_cluster_name }}/kubeconfig --nodes {{ first_control_plane_ip }} --talosconfig={{ talos_cluster_name }}/talosconfig"
+      ansible.builtin.command: "talosctl kubeconfig {{ talos_cluster_name }}/kubeconfig --nodes {{ tailscale_ip | default(first_control_plane_ip) }} --talosconfig={{ talos_cluster_name }}/talosconfig"
       changed_when: false
 
-    - name: Discover Tailscale IP
-      ansible.builtin.command:
-        cmd: "talosctl --talosconfig {{ talos_cluster_name }}/talosconfig -n {{ first_control_plane_ip }} get addresses -o json"
-      register: tallos_addresses
-      changed_when: false
-      failed_when: false
-
-    - name: Switch local talosconfig to Tailscale IP
-      ansible.builtin.shell: |
-        # Extract 100.x.x.x address using standard tools (grep/cut) to avoid jq dependency
-        TS_IP=$(echo '{{ tallos_addresses.stdout }}' | grep -oP '"address": "\K100\.[^"]+' | head -n1 | sed 's|/.*||')
-        # Fallback for systems without grep -P
-        if [ -z "$TS_IP" ]; then
-            TS_IP=$(echo '{{ tallos_addresses.stdout }}' | grep '"address": "100\.' | head -n1 | cut -d '"' -f 4 | sed 's|/.*||')
-        fi
-        
-        if [ -n "$TS_IP" ]; then
-          talosctl config endpoint "$TS_IP" --talosconfig {{ talos_cluster_name }}/talosconfig
-          talosctl config node "$TS_IP" --talosconfig {{ talos_cluster_name }}/talosconfig
-          sed -i "s/{{ first_control_plane_ip }}/$TS_IP/g" {{ talos_cluster_name }}/kubeconfig
-        fi
-      when:
-        - tallos_addresses.rc == 0
-        - tallos_addresses.stdout | length > 0
+    - name: Update kubeconfig server to Tailscale IP
+      ansible.builtin.replace:
+        path: "{{ talos_cluster_name }}/kubeconfig"
+        regexp: "server: https://{{ first_control_plane_ip | regex_escape }}:6443"
+        replace: "server: https://{{ tailscale_ip }}:6443"
+      when: tailscale_ip is defined and tailscale_ip | length > 0
   delegate_to: localhost
   when: bootstrap_server | default(false)
