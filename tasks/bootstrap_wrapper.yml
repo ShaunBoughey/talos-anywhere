@@ -1,0 +1,7 @@
+---
+- name: "Iterate kexec bootstrap over server nodes"
+  ansible.builtin.include_tasks: bootstrap.yml
+  loop: "{{ groups[server_control_plane_group] | default([]) + groups[server_worker_group] | default([]) }}"
+  loop_control:
+    loop_var: node_item
+  when: bootstrap_server | default(false)

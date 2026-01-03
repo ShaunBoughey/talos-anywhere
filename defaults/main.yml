@@ -1,0 +1,44 @@
+---
+# ---------------------------------------------------------------------
+
+# ---------------------------------------------------------------------
+# Talos Cluster
+# Core settings and software versions.
+# ---------------------------------------------------------------------
+talos_cluster_name: "dev_k8s"
+talos_version: "v1.11.1"
+talos_kubernetes_version: "v1.34.0"
+talos_install_disk: "/dev/vda"
+
+# ---------------------------------------------------------------------
+# Automation & Lifecycle Flags
+# ---------------------------------------------------------------------
+
+bootstrap_server: false
+bootstrap_talos_cluster: true
+talos_upgrade_enabled: false
+talos_upgrade_stage: false
+talos_upgrade_wait: true
+
+# ---------------------------------------------------------------------
+# Remote Server Configuration
+# ---------------------------------------------------------------------
+server_control_plane_group: "server_cp"
+server_worker_group: "server_worker"
+server_ssh_user: "root"
+
+# Talos Image Factory (Optional, but recommended for VPS)
+# Default is a standard image, update if you want pre-baked extensions
+talos_schematic_id: "default" 
+talos_factory_url: "https://factory.talos.dev/image"
+# Architectures: amd64, arm64
+talos_arch: "amd64"
+
+# ---------------------------------------------------------------------
+# Multi-Cloud & Security Features
+# ---------------------------------------------------------------------
+talos_kubespan_enabled: true
+talos_allow_scheduling_on_control_plane: false
+tailscale_enabled: true
+tailscale_auth_key: ""
+tailscale_version: "1.76.1"

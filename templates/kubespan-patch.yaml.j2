@@ -1,0 +1,7 @@
+machine:
+  network:
+    kubespan:
+      enabled: {{ talos_kubespan_enabled | lower }}
+cluster:
+  discovery:
+    enabled: true

@@ -1,0 +1,8 @@
+---
+- name: Bootstrap Talos on server via kexec
+  ansible.builtin.import_tasks: bootstrap_wrapper.yml
+  when: bootstrap_server | default(false)
+
+- name: Configure Talos Cluster
+  ansible.builtin.import_tasks: configure.yml
+  when: bootstrap_talos_cluster | default(false)

@@ -1,0 +1,40 @@
+---
+apiVersion: v1alpha1
+kind: NetworkDefaultActionConfig
+ingress: block
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: tailscale-management
+portSelector:
+  ports:
+    - 50000
+    - 6443
+  protocol: tcp
+ingress:
+  - subnet: 100.64.0.0/10
+{% if runner_ip is defined and runner_ip | length > 0 %}
+  - subnet: {{ runner_ip }}/32
+{% endif %}
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: allow-all-except-management-tcp
+portSelector:
+  ports:
+    - 1-6442
+    - 6444-49999
+    - 50001-65535
+  protocol: tcp
+ingress:
+  - subnet: 0.0.0.0/0
+---
+apiVersion: v1alpha1
+kind: NetworkRuleConfig
+name: allow-all-udp
+portSelector:
+  ports:
+    - 1-65535
+  protocol: udp
+ingress:
+  - subnet: 0.0.0.0/0

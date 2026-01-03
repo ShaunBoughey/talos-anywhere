@@ -1,0 +1,106 @@
+- name: Check if Talos is already running on port 50000
+  ansible.builtin.wait_for:
+    host: "{{ node_item }}"
+    port: 50000
+    state: started
+    timeout: 5
+  register: talos_check
+  ignore_errors: true
+  delegate_to: localhost
+
+- name: "Perform kexec into Talos (Skip if already on Talos)"
+  block:
+    - name: Get current public IP and Gateway
+      ansible.builtin.shell: |
+        ip -o -4 route get 8.8.8.8 | awk -F"src " '{sub(" .*", "", $2); print $2}'
+      register: server_ip
+      delegate_to: "{{ node_item }}"
+      remote_user: "{{ server_ssh_user | default('root') }}"
+      become: true
+    
+    - name: Get current Gateway
+      ansible.builtin.shell: |
+        ip -o -4 route get 8.8.8.8 | awk -F"via " '{sub(" .*", "", $2); print $2}'
+      register: server_gw
+      delegate_to: "{{ node_item }}"
+      remote_user: "{{ server_ssh_user | default('root') }}"
+      become: true
+
+    - name: Get current Interface
+      ansible.builtin.shell: |
+        ip -o -4 route get 8.8.8.8 | awk -F"dev " '{sub(" .*", "", $2); print $2}'
+      register: server_eth
+      delegate_to: "{{ node_item }}"
+      remote_user: "{{ server_ssh_user | default('root') }}"
+      become: true
+
+    - name: Get Netmask
+      ansible.builtin.shell: |
+        ip -o -4 addr show "{{ server_eth.stdout }}" | awk -F"inet {{ server_ip.stdout }}/" '{sub(" .*", "", $2); print $2; exit}'
+      register: server_cidr
+      delegate_to: "{{ node_item }}"
+      remote_user: "{{ server_ssh_user | default('root') }}"
+      become: true
+
+    - name: Set Network Facts
+      ansible.builtin.set_fact:
+        target_ip: "{{ server_ip.stdout }}"
+        target_gw: "{{ server_gw.stdout }}"
+        target_dev: "{{ server_eth.stdout }}"
+        target_cidr: "{{ server_cidr.stdout }}"
+
+    - name: Ensure kexec-tools is installed on Server
+      ansible.builtin.package:
+        name: kexec-tools
+        state: present
+      delegate_to: "{{ node_item }}"
+      remote_user: "{{ server_ssh_user | default('root') }}"
+      become: true
+
+    - name: Download Talos vmlinuz from Factory
+      ansible.builtin.get_url:
+        url: "{{ (talos_schematic_id == 'default') | ternary('https://github.com/siderolabs/talos/releases/download/' ~ talos_version ~ '/vmlinuz-' ~ talos_arch, talos_factory_url ~ '/' ~ talos_schematic_id ~ '/' ~ talos_version ~ '/kernel-' ~ talos_arch) }}"
+        dest: /root/vmlinuz
+        mode: '0755'
+        timeout: 300
+      delegate_to: "{{ node_item }}"
+      remote_user: "{{ server_ssh_user | default('root') }}"
+      become: true
+
+    - name: Download Talos initramfs from Factory
+      ansible.builtin.get_url:
+        url: "{{ (talos_schematic_id == 'default') | ternary('https://github.com/siderolabs/talos/releases/download/' ~ talos_version ~ '/initramfs-' ~ talos_arch ~ '.xz', talos_factory_url ~ '/' ~ talos_schematic_id ~ '/' ~ talos_version ~ '/initramfs-' ~ talos_arch ~ '.xz') }}"
+        dest: /root/initramfs.xz
+        mode: '0644'
+        timeout: 300
+      delegate_to: "{{ node_item }}"
+      remote_user: "{{ server_ssh_user | default('root') }}"
+      become: true
+
+    - name: Load Talos into kexec with discovered Networking
+      ansible.builtin.command:
+        cmd: "kexec -l /root/vmlinuz --initrd=/root/initramfs.xz --append='init_on_alloc=1 slab_nomerge pti=on console=tty0 console=ttyS0 talos.platform=metal talos.mode=vps ip={{ target_ip }}::{{ target_gw }}:{{ target_cidr }}::{{ target_dev }}:off'"
+      delegate_to: "{{ node_item }}"
+      remote_user: "{{ server_ssh_user | default('root') }}"
+      become: true
+      changed_when: true
+
+    - name: Execute kexec on Server (force immediate switch)
+      ansible.builtin.shell: 
+        cmd: "sync && kexec -f -e"
+      delegate_to: "{{ node_item }}"
+      remote_user: "{{ server_ssh_user | default('root') }}"
+      become: true
+      async: 5
+      poll: 0
+      changed_when: true
+
+    - name: Wait for Server to come back online in Talos maintenance mode
+      ansible.builtin.wait_for:
+        host: "{{ node_item }}"
+        port: 50000
+        delay: 30
+        timeout: 600
+      delegate_to: localhost
+
+  when: talos_check.failed | default(false)
